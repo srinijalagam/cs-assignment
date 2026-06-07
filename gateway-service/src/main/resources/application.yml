@@ -1,0 +1,47 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: gateway-service
+  datasource:
+    url: jdbc:h2:mem:gatewaydb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  h2:
+    console:
+      enabled: false
+
+gateway:
+  account-service:
+    base-url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
+  recent-event-limit: ${RECENT_EVENT_LIMIT:10}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      accountService:
+        sliding-window-size: 5
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 2
+  timelimiter:
+    instances:
+      accountService:
+        timeout-duration: 3s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  level:
+    root: INFO

@@ -1,0 +1,19 @@
+# Build output
+target/
+*/target/
+
+# Project-private files (not for submission)
+notes.txt
+Assignment*.docx
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

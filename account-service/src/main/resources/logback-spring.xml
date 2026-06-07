@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp>
+                    <fieldName>timestamp</fieldName>
+                </timestamp>
+                <pattern>
+                    <pattern>
+                        {
+                          "service": "account-service",
+                          "level": "%level",
+                          "traceId": "%mdc{traceId:-}",
+                          "logger": "%logger{36}",
+                          "message": "%message"
+                        }
+                    </pattern>
+                </pattern>
+                <stackTrace>
+                    <fieldName>exception</fieldName>
+                </stackTrace>
+            </providers>
+        </encoder>
+    </appender>
+    <root level="INFO">
+        <appender-ref ref="JSON"/>
+    </root>
+</configuration>
