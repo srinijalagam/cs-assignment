@@ -13,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -75,6 +76,29 @@ class EventServiceTest {
 
         assertThat(result.duplicate()).isTrue();
         verify(accountServiceClient, never()).applyTransaction(any(), any());
+    }
+
+    @Test
+    void resolvesConcurrentDuplicateToExistingEvent() {
+        EventRequest request = sampleRequest("evt-race");
+        var entity = new com.eventledger.gateway.domain.EventEntity(
+                "evt-race", "acct-1", EventType.CREDIT, new BigDecimal("10.00"),
+                "USD", Instant.parse("2026-05-15T14:00:00Z"), null, Instant.now()
+        );
+        // First lookup misses (we proceed to save); the unique constraint then rejects the
+        // write because a concurrent request persisted first; the catch-block lookup hits.
+        when(eventRepository.findByEventId("evt-race"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(entity));
+        when(eventRepository.saveAndFlush(any()))
+                .thenThrow(new DataIntegrityViolationException("duplicate event_id"));
+
+        var result = eventService.submitEvent(request);
+
+        assertThat(result.duplicate()).isTrue();
+        assertThat(result.event().eventId()).isEqualTo("evt-race");
+        verify(accountServiceClient).applyTransaction(eq("acct-1"), any());
+        verify(eventMetrics, never()).incrementSubmitted();
     }
 
     private EventRequest sampleRequest(String eventId) {

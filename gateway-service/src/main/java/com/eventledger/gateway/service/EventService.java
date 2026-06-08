@@ -13,6 +13,7 @@ import com.eventledger.gateway.repository.EventRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class EventService {
@@ -50,27 +52,37 @@ public class EventService {
     public EventSubmissionResult submitEvent(EventRequest request) {
         validateEvent(request);
 
-        return eventRepository.findByEventId(request.eventId())
-                .map(existing -> new EventSubmissionResult(toResponse(existing), true))
-                .orElseGet(() -> {
-                    accountServiceClient.applyTransaction(
-                            request.accountId(),
-                            AccountTransactionRequest.from(request)
-                    );
+        Optional<EventEntity> existing = eventRepository.findByEventId(request.eventId());
+        if (existing.isPresent()) {
+            return new EventSubmissionResult(toResponse(existing.get()), true);
+        }
 
-                    EventEntity saved = eventRepository.save(new EventEntity(
-                            request.eventId(),
-                            request.accountId(),
-                            request.type(),
-                            request.amount(),
-                            request.currency(),
-                            request.eventTimestamp(),
-                            serializeMetadata(request.metadata()),
-                            Instant.now()
-                    ));
-                    eventMetrics.incrementSubmitted();
-                    return new EventSubmissionResult(toResponse(saved), false);
-                });
+        accountServiceClient.applyTransaction(
+                request.accountId(),
+                AccountTransactionRequest.from(request)
+        );
+
+        try {
+            EventEntity saved = eventRepository.saveAndFlush(new EventEntity(
+                    request.eventId(),
+                    request.accountId(),
+                    request.type(),
+                    request.amount(),
+                    request.currency(),
+                    request.eventTimestamp(),
+                    serializeMetadata(request.metadata()),
+                    Instant.now()
+            ));
+            eventMetrics.incrementSubmitted();
+            return new EventSubmissionResult(toResponse(saved), false);
+        } catch (DataIntegrityViolationException duplicate) {
+            // A concurrent submission of the same eventId won the race and persisted first.
+            // The unique constraint on event_id rejected this write; resolve it to the
+            // already-stored event and return it as a duplicate (idempotent outcome).
+            EventEntity persisted = eventRepository.findByEventId(request.eventId())
+                    .orElseThrow(() -> duplicate);
+            return new EventSubmissionResult(toResponse(persisted), true);
+        }
     }
 
     @Transactional(readOnly = true)

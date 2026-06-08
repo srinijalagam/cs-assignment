@@ -13,6 +13,7 @@ import com.eventledger.account.repository.TransactionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +22,7 @@ import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class AccountService {
@@ -46,22 +48,32 @@ public class AccountService {
     public TransactionResponse applyTransaction(String accountId, ApplyTransactionRequest request) {
         validateRequest(accountId, request);
 
-        return transactionRepository.findByEventId(request.eventId())
-                .map(existing -> toResponse(existing, true))
-                .orElseGet(() -> {
-                    String metadataJson = serializeMetadata(request.metadata());
-                    TransactionEntity saved = transactionRepository.save(new TransactionEntity(
-                            request.eventId(),
-                            accountId,
-                            request.type(),
-                            request.amount(),
-                            request.currency(),
-                            request.eventTimestamp(),
-                            metadataJson
-                    ));
-                    transactionMetrics.incrementApplied();
-                    return toResponse(saved, false);
-                });
+        Optional<TransactionEntity> existing = transactionRepository.findByEventId(request.eventId());
+        if (existing.isPresent()) {
+            return toResponse(existing.get(), true);
+        }
+
+        try {
+            String metadataJson = serializeMetadata(request.metadata());
+            TransactionEntity saved = transactionRepository.saveAndFlush(new TransactionEntity(
+                    request.eventId(),
+                    accountId,
+                    request.type(),
+                    request.amount(),
+                    request.currency(),
+                    request.eventTimestamp(),
+                    metadataJson
+            ));
+            transactionMetrics.incrementApplied();
+            return toResponse(saved, false);
+        } catch (DataIntegrityViolationException duplicate) {
+            // A concurrent apply with the same eventId persisted first; the unique
+            // constraint rejected this write. Resolve to the existing transaction so the
+            // operation stays idempotent and the balance is unaffected.
+            TransactionEntity persisted = transactionRepository.findByEventId(request.eventId())
+                    .orElseThrow(() -> duplicate);
+            return toResponse(persisted, true);
+        }
     }
 
     @Transactional(readOnly = true)
