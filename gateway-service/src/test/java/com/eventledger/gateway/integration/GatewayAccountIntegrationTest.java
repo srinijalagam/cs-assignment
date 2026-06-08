@@ -20,6 +20,7 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
@@ -91,6 +92,18 @@ class GatewayAccountIntegrationTest {
         WIRE_MOCK.verify(postRequestedFor(urlEqualTo("/accounts/acct-int/transactions")));
     }
 
+    private EventRequest orderRequest(String eventId, String timestamp) {
+        return new EventRequest(
+                eventId,
+                "acct-order",
+                EventType.CREDIT,
+                new BigDecimal("1.00"),
+                "USD",
+                Instant.parse(timestamp),
+                Map.of()
+        );
+    }
+
     @Test
     void propagatesTraceIdToAccountService() {
         WIRE_MOCK.stubFor(post(urlEqualTo("/accounts/acct-trace/transactions"))
@@ -108,6 +121,24 @@ class GatewayAccountIntegrationTest {
 
         WIRE_MOCK.verify(postRequestedFor(urlEqualTo("/accounts/acct-trace/transactions"))
                 .withHeader("X-Trace-Id", matching(".+")));
+    }
+
+    @Test
+    void listsEventsChronologicallyRegardlessOfArrivalOrder() {
+        WIRE_MOCK.stubFor(post(urlEqualTo("/accounts/acct-order/transactions"))
+                .willReturn(aResponse().withStatus(201)));
+
+        // Submit out of chronological order: middle, earliest, latest.
+        eventService.submitEvent(orderRequest("evt-mid", "2026-05-15T15:00:00Z"));
+        eventService.submitEvent(orderRequest("evt-early", "2026-05-15T14:00:00Z"));
+        eventService.submitEvent(orderRequest("evt-late", "2026-05-15T16:00:00Z"));
+
+        List<EventResponse> events = eventService.listEventsByAccount("acct-order");
+
+        assertThat(events).extracting(EventResponse::eventId)
+                .containsExactly("evt-early", "evt-mid", "evt-late");
+        assertThat(events).extracting(EventResponse::eventTimestamp)
+                .isSorted();
     }
 
     @Test
