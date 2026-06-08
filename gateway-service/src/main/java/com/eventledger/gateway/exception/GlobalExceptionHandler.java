@@ -77,4 +77,16 @@ public class GlobalExceptionHandler {
         problem.setProperty("timestamp", Instant.now());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problem);
     }
+
+    @ExceptionHandler(DownstreamClientException.class)
+    public ResponseEntity<ProblemDetail> handleDownstreamClient(DownstreamClientException ex) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatus());
+        if (status == null) {
+            status = HttpStatus.BAD_GATEWAY;
+        }
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
+        problem.setTitle(status.getReasonPhrase());
+        problem.setProperty("timestamp", Instant.now());
+        return ResponseEntity.status(status).body(problem);
+    }
 }

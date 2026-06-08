@@ -37,7 +37,7 @@ Client  -->  Gateway Service (8080, H2)  --REST-->  Account Service (8081, H2)
 - **Idempotency** — `eventId` is the idempotency key in both services (lookup before write + unique DB constraint). Duplicate submissions return the original record with `200 OK`.
 - **Out-of-order tolerance** — events are stored as received; balance is an order-independent `SUM(CREDIT) - SUM(DEBIT)` aggregate, and listings are sorted by `eventTimestamp`.
 - **Validation** — missing fields, zero/negative amounts (`@DecimalMin`), and unknown event types (e.g. `"TRANSFER"`) all return a structured RFC 9457 `400` with a meaningful message.
-- **Graceful degradation** — when the Account Service is unavailable: `POST /events` returns `503` (no event stored), `GET /events*` still work from local data, and `GET /accounts/{id}/balance` returns a clear `503`.
+- **Graceful degradation** — when the Account Service is unavailable: `POST /events` returns `503` (no event stored), `GET /events*` still work from local data, and `GET /accounts/{id}/balance` returns a clear `503`. A *definitive* `4xx` from a healthy Account Service (e.g. `404` for an unknown account) is relayed with its original status rather than masked as `503`, and is excluded from the circuit breaker's failure accounting.
 
 ### Design assumptions
 

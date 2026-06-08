@@ -3,6 +3,7 @@ package com.eventledger.gateway.client;
 import com.eventledger.gateway.config.GatewayProperties;
 import com.eventledger.gateway.dto.BalanceResponse;
 import com.eventledger.gateway.exception.AccountServiceUnavailableException;
+import com.eventledger.gateway.exception.DownstreamClientException;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,7 +42,11 @@ public class AccountServiceClient {
                     .header(TRACE_HEADER, traceId)
                     .body(request)
                     .retrieve()
-                    .onStatus(HttpStatusCode::isError, (req, response) -> {
+                    .onStatus(HttpStatusCode::is4xxClientError, (req, response) -> {
+                        throw new DownstreamClientException(response.getStatusCode().value(),
+                                "Account service rejected request: HTTP " + response.getStatusCode().value());
+                    })
+                    .onStatus(HttpStatusCode::is5xxServerError, (req, response) -> {
                         throw new AccountServiceUnavailableException(
                                 "Account service returned HTTP " + response.getStatusCode().value());
                     })
@@ -55,6 +60,11 @@ public class AccountServiceClient {
 
     @SuppressWarnings("unused")
     private void applyTransactionFallback(String accountId, AccountTransactionRequest request, Throwable cause) {
+        // A 4xx is a definitive answer from a healthy service; relay it unchanged
+        // rather than masking it as a 503.
+        if (cause instanceof DownstreamClientException dce) {
+            throw dce;
+        }
         log.warn("Circuit breaker open for account service, event {}", request.eventId());
         throw new AccountServiceUnavailableException("Account service is unavailable", cause);
     }
@@ -67,7 +77,11 @@ public class AccountServiceClient {
                     .uri("/accounts/{accountId}/balance", accountId)
                     .header(TRACE_HEADER, traceId)
                     .retrieve()
-                    .onStatus(HttpStatusCode::isError, (req, response) -> {
+                    .onStatus(HttpStatusCode::is4xxClientError, (req, response) -> {
+                        throw new DownstreamClientException(response.getStatusCode().value(),
+                                "Account service rejected request: HTTP " + response.getStatusCode().value());
+                    })
+                    .onStatus(HttpStatusCode::is5xxServerError, (req, response) -> {
                         throw new AccountServiceUnavailableException(
                                 "Account service returned HTTP " + response.getStatusCode().value());
                     })
@@ -80,6 +94,10 @@ public class AccountServiceClient {
 
     @SuppressWarnings("unused")
     private BalanceResponse getBalanceFallback(String accountId, Throwable cause) {
+        // A 4xx (e.g. unknown account -> 404) is a definitive answer; relay it unchanged.
+        if (cause instanceof DownstreamClientException dce) {
+            throw dce;
+        }
         log.warn("Circuit breaker open for account service, balance query for account {}", accountId);
         throw new AccountServiceUnavailableException("Account service is unavailable", cause);
     }

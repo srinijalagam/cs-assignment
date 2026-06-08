@@ -1,10 +1,13 @@
 package com.eventledger.gateway.integration;
 
+import com.eventledger.gateway.client.AccountServiceClient;
 import com.eventledger.gateway.domain.EventType;
 import com.eventledger.gateway.dto.EventRequest;
 import com.eventledger.gateway.dto.EventResponse;
+import com.eventledger.gateway.exception.DownstreamClientException;
 import com.eventledger.gateway.service.EventService;
 import com.github.tomakehurst.wiremock.WireMockServer;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,10 +23,13 @@ import java.time.Instant;
 import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @TestPropertySource(properties = "test.context=gateway-account-integration")
@@ -38,6 +44,9 @@ class GatewayAccountIntegrationTest {
 
     @Autowired
     private EventService eventService;
+
+    @Autowired
+    private AccountServiceClient accountServiceClient;
 
     @Autowired
     private CircuitBreakerRegistry circuitBreakerRegistry;
@@ -80,5 +89,39 @@ class GatewayAccountIntegrationTest {
         assertThat(stored.amount()).isEqualByComparingTo(new BigDecimal("75.00"));
 
         WIRE_MOCK.verify(postRequestedFor(urlEqualTo("/accounts/acct-int/transactions")));
+    }
+
+    @Test
+    void propagatesTraceIdToAccountService() {
+        WIRE_MOCK.stubFor(post(urlEqualTo("/accounts/acct-trace/transactions"))
+                .willReturn(aResponse().withStatus(201)));
+
+        eventService.submitEvent(new EventRequest(
+                "evt-trace-1",
+                "acct-trace",
+                EventType.CREDIT,
+                new BigDecimal("5.00"),
+                "USD",
+                Instant.parse("2026-05-15T14:00:00Z"),
+                Map.of()
+        ));
+
+        WIRE_MOCK.verify(postRequestedFor(urlEqualTo("/accounts/acct-trace/transactions"))
+                .withHeader("X-Trace-Id", matching(".+")));
+    }
+
+    @Test
+    void downstream404SurfacesAsDownstreamClientExceptionNotUnavailable() {
+        WIRE_MOCK.stubFor(get(urlEqualTo("/accounts/acct-missing/balance"))
+                .willReturn(aResponse().withStatus(404)));
+
+        assertThatThrownBy(() -> accountServiceClient.getBalance("acct-missing"))
+                .isInstanceOf(DownstreamClientException.class)
+                .extracting(ex -> ((DownstreamClientException) ex).getStatus())
+                .isEqualTo(404);
+
+        // A definitive 4xx must not trip the breaker.
+        assertThat(circuitBreakerRegistry.circuitBreaker("accountService").getState())
+                .isEqualTo(CircuitBreaker.State.CLOSED);
     }
 }

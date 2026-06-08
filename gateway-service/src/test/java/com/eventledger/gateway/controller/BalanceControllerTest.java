@@ -3,6 +3,7 @@ package com.eventledger.gateway.controller;
 import com.eventledger.gateway.client.AccountServiceClient;
 import com.eventledger.gateway.dto.BalanceResponse;
 import com.eventledger.gateway.exception.AccountServiceUnavailableException;
+import com.eventledger.gateway.exception.DownstreamClientException;
 import com.eventledger.gateway.exception.GlobalExceptionHandler;
 import com.eventledger.gateway.metrics.EventMetrics;
 import com.eventledger.gateway.metrics.MetricsInterceptor;
@@ -48,5 +49,14 @@ class BalanceControllerTest {
         mockMvc.perform(get("/accounts/acct-1/balance"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.detail").value("Account service is unavailable"));
+    }
+
+    @Test
+    void relaysDownstream404InsteadOfMaskingAs503() throws Exception {
+        when(accountServiceClient.getBalance("acct-missing"))
+                .thenThrow(new DownstreamClientException(404, "Account service rejected request: HTTP 404"));
+
+        mockMvc.perform(get("/accounts/acct-missing/balance"))
+                .andExpect(status().isNotFound());
     }
 }

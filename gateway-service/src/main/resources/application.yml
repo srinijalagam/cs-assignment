@@ -33,6 +33,10 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 2
+        # A 4xx is a definitive answer from a healthy service, not an availability
+        # failure, so it must not count toward opening the breaker.
+        ignore-exceptions:
+          - com.eventledger.gateway.exception.DownstreamClientException
 
 management:
   endpoints:
