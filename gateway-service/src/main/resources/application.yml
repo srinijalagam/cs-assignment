@@ -20,6 +20,8 @@ spring:
 gateway:
   account-service:
     base-url: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
+    connect-timeout: ${ACCOUNT_SERVICE_CONNECT_TIMEOUT:2s}
+    read-timeout: ${ACCOUNT_SERVICE_READ_TIMEOUT:3s}
   recent-event-limit: ${RECENT_EVENT_LIMIT:10}
 
 resilience4j:
@@ -31,10 +33,6 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 2
-  timelimiter:
-    instances:
-      accountService:
-        timeout-duration: 3s
 
 management:
   endpoints:

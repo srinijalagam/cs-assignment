@@ -50,7 +50,9 @@ Client  -->  Gateway Service (8080, H2)  --REST-->  Account Service (8081, H2)
 
 ### Resiliency
 
-The Gateway uses a **Resilience4j circuit breaker** on every call to the Account Service (transaction apply and balance proxy). After repeated failures the circuit opens and the Gateway returns `503 Service Unavailable` immediately instead of hanging or returning `500`. A circuit breaker was chosen over plain retries because the failure mode here (Account Service down) is not transient — retrying would only add latency and load, whereas opening the circuit fails fast and protects the Gateway's resources.
+The Gateway uses a **Resilience4j circuit breaker** on every call to the Account Service (transaction apply and balance proxy), implemented in `AccountServiceClient` (`gateway-service`) and tuned in `application.yml`. After repeated failures the circuit opens and the Gateway returns `503 Service Unavailable` immediately instead of hanging or returning `500`. A circuit breaker was chosen over plain retries because the failure mode here (Account Service down) is not transient — retrying would only add latency and load, whereas opening the circuit fails fast and protects the Gateway's resources.
+
+The breaker is paired with HTTP **connect/read timeouts** on the client (`ACCOUNT_SERVICE_CONNECT_TIMEOUT` / `ACCOUNT_SERVICE_READ_TIMEOUT`). This guards the *slow*-response case: a read timeout surfaces as a `503` and also counts as a circuit-breaker failure, so a persistently slow Account Service will trip the breaker rather than tying up gateway threads. Resiliency lives on the caller (Gateway) because the Account Service has no downstream dependency of its own.
 
 ## Prerequisites
 
@@ -144,6 +146,8 @@ Test coverage:
 | Variable | Service | Default | Description |
 |---|---|---|---|
 | `ACCOUNT_SERVICE_URL` | Gateway | `http://localhost:8081` | Account Service base URL |
+| `ACCOUNT_SERVICE_CONNECT_TIMEOUT` | Gateway | `2s` | Max time to establish a connection to the Account Service |
+| `ACCOUNT_SERVICE_READ_TIMEOUT` | Gateway | `3s` | Max time to wait for an Account Service response |
 | `RECENT_EVENT_LIMIT` | Gateway | `10` | Max events returned per account |
 | `RECENT_TRANSACTION_LIMIT` | Account | `10` | Max transactions in account details |
 | `SERVER_PORT` | Both | `8080` / `8081` | HTTP port |

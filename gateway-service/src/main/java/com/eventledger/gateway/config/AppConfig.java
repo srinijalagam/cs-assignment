@@ -13,13 +13,21 @@ import java.net.http.HttpClient;
 public class AppConfig {
 
     @Bean
-    public RestClient.Builder restClientBuilder() {
+    public RestClient.Builder restClientBuilder(GatewayProperties gatewayProperties) {
+        GatewayProperties.AccountService accountService = gatewayProperties.getAccountService();
+
         // Pin to HTTP/1.1: the JDK client otherwise attempts HTTP/2, which some servers
         // (e.g. WireMock/Jetty in tests) reject with RST_STREAM on cleartext upgrade.
+        // connectTimeout caps connection establishment; readTimeout caps waiting for a response
+        // so a slow Account Service cannot hang a gateway thread indefinitely.
         HttpClient httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(accountService.getConnectTimeout())
                 .build();
-        return RestClient.builder()
-                .requestFactory(new JdkClientHttpRequestFactory(httpClient));
+
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(accountService.getReadTimeout());
+
+        return RestClient.builder().requestFactory(requestFactory);
     }
 }
