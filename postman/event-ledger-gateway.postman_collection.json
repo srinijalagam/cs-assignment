@@ -1,0 +1,333 @@
+{
+  "info": {
+    "name": "Event Ledger - Gateway API",
+    "description": "Public Gateway REST API for the Event Ledger system. Every request includes assertions so a pass/fail report can be generated (Postman Runner or Newman). Set the `baseUrl` collection variable to point at your Gateway instance. Requires both the Gateway and Account services to be running (e.g. `make docker-up`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "accountId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "eventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "eventId2",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health check",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "pm.test('service is gateway-service', function () { pm.expect(json.service).to.eql('gateway-service'); });",
+              "pm.test('status reported UP', function () { pm.expect(json.status).to.eql('UP'); });",
+              "pm.test('database connectivity reported', function () { pm.expect(json).to.have.property('database'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "Submit event A (new -> 201)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Generate unique ids per run so the collection is repeatable and self-contained.",
+              "var id = Date.now();",
+              "pm.collectionVariables.set('accountId', 'pm-acct-' + id);",
+              "pm.collectionVariables.set('eventId', 'pm-evt-A-' + id);",
+              "pm.collectionVariables.set('eventId2', 'pm-evt-B-' + id);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 201 (new event created)', function () { pm.response.to.have.status(201); });",
+              "var json = pm.response.json();",
+              "pm.test('echoes submitted eventId', function () { pm.expect(json.eventId).to.eql(pm.collectionVariables.get('eventId')); });",
+              "pm.test('type is CREDIT', function () { pm.expect(json.type).to.eql('CREDIT'); });",
+              "pm.test('amount is 150.00', function () { pm.expect(Number(json.amount)).to.be.closeTo(150, 0.001); });",
+              "pm.test('currency is USD', function () { pm.expect(json.currency).to.eql('USD'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"CREDIT\",\n  \"amount\": 150.00,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T14:02:11Z\",\n  \"metadata\": { \"source\": \"postman\", \"batchId\": \"B-1\" }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/events"
+      }
+    },
+    {
+      "name": "Submit event B (earlier timestamp -> 201)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 201 (new event created)', function () { pm.response.to.have.status(201); });",
+              "var json = pm.response.json();",
+              "pm.test('echoes submitted eventId', function () { pm.expect(json.eventId).to.eql(pm.collectionVariables.get('eventId2')); });",
+              "pm.test('amount is 50.00', function () { pm.expect(Number(json.amount)).to.be.closeTo(50, 0.001); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{eventId2}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"CREDIT\",\n  \"amount\": 50.00,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T13:00:00Z\",\n  \"metadata\": { \"source\": \"postman\", \"batchId\": \"B-2\" }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/events"
+      }
+    },
+    {
+      "name": "Submit event A again (duplicate -> 200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200 (idempotent duplicate)', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "pm.test('returns the original eventId', function () { pm.expect(json.eventId).to.eql(pm.collectionVariables.get('eventId')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"CREDIT\",\n  \"amount\": 150.00,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T14:02:11Z\",\n  \"metadata\": { \"source\": \"postman\", \"batchId\": \"B-1\" }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/events"
+      }
+    },
+    {
+      "name": "Get event by id",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "pm.test('returns the requested event', function () { pm.expect(json.eventId).to.eql(pm.collectionVariables.get('eventId')); });",
+              "pm.test('belongs to the expected account', function () { pm.expect(json.accountId).to.eql(pm.collectionVariables.get('accountId')); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/events/{{eventId}}"
+      }
+    },
+    {
+      "name": "List events by account (ordered by eventTimestamp)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "var arr = pm.response.json();",
+              "pm.test('response is an array', function () { pm.expect(arr).to.be.an('array'); });",
+              "pm.test('contains both submitted events', function () {",
+              "  var ids = arr.map(function (e) { return e.eventId; });",
+              "  pm.expect(ids).to.include(pm.collectionVariables.get('eventId'));",
+              "  pm.expect(ids).to.include(pm.collectionVariables.get('eventId2'));",
+              "});",
+              "pm.test('events are ordered ascending by eventTimestamp', function () {",
+              "  var ts = arr.map(function (e) { return new Date(e.eventTimestamp).getTime(); });",
+              "  var sorted = ts.slice().sort(function (a, b) { return a - b; });",
+              "  pm.expect(ts).to.eql(sorted);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/events?account={{accountId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["events"],
+          "query": [
+            { "key": "account", "value": "{{accountId}}" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get account balance (proxied to Account Service)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "pm.test('balance equals sum of credits (150 + 50 = 200)', function () { pm.expect(Number(json.balance)).to.be.closeTo(200, 0.001); });",
+              "pm.test('currency is USD', function () { pm.expect(json.currency).to.eql('USD'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/accounts/{{accountId}}/balance"
+      }
+    },
+    {
+      "name": "Reject unknown event type (-> 400)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+              "var json = pm.response.json();",
+              "pm.test('error message lists allowed types', function () { pm.expect(json.detail).to.include('CREDIT'); pm.expect(json.detail).to.include('DEBIT'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"pm-evt-bad-type\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"TRANSFER\",\n  \"amount\": 10.00,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T14:02:11Z\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/events"
+      }
+    },
+    {
+      "name": "Reject zero amount (-> 400)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 400', function () { pm.response.to.have.status(400); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"pm-evt-zero\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"CREDIT\",\n  \"amount\": 0,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T14:02:11Z\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/events"
+      }
+    },
+    {
+      "name": "Get non-existent event (-> 404)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 404', function () { pm.response.to.have.status(404); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/events/does-not-exist-{{$guid}}"
+      }
+    },
+    {
+      "name": "Custom metrics",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "pm.test('service is gateway-service', function () { pm.expect(json.service).to.eql('gateway-service'); });",
+              "pm.test('eventsSubmitted counter present and >= 2', function () { pm.expect(Number(json.eventsSubmitted)).to.be.at.least(2); });",
+              "pm.test('requestCountByEndpoint present', function () { pm.expect(json).to.have.property('requestCountByEndpoint'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/metrics/custom"
+      }
+    }
+  ]
+}

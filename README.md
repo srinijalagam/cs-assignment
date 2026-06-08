@@ -129,6 +129,41 @@ Test coverage:
 - **Trace propagation** — incoming `X-Trace-Id` is honored and generated when absent (`TraceIdFilterTest`, `EventControllerTest`).
 - **Integration** — full Gateway → Account flow with WireMock (`GatewayAccountIntegrationTest`).
 
+## Postman / API collection
+
+A ready-to-run Postman collection for the public Gateway API lives at [`postman/event-ledger-gateway.postman_collection.json`](postman/event-ledger-gateway.postman_collection.json). Every request includes assertions, so running it produces a pass/fail report.
+
+It covers: health check, submit event (new `201` and duplicate `200`), get event by id, list events by account (asserts chronological ordering), balance (asserts `150 + 50 = 200`), validation (`400` for unknown type and zero amount), not-found (`404`), and custom metrics. Each run generates unique `eventId`/`accountId` values, so it is repeatable and self-contained.
+
+**Prerequisite:** both services running, e.g. `make docker-up` (Gateway on `http://localhost:8080`).
+
+### Configuration
+
+The collection declares a `baseUrl` variable (default `http://localhost:8080`). Change it to target a different host.
+
+### Run in Postman (GUI)
+
+1. **Import** → select the collection file.
+2. (Optional) Edit the collection's `baseUrl` variable under the collection's **Variables** tab.
+3. Open the **Collection Runner**, select the collection, and **Run**. The run summary shows passed/failed assertions per request.
+
+### Run from the CLI with Newman (generates a report)
+
+```bash
+# install once
+npm install -g newman newman-reporter-htmlextra
+
+# run against the default localhost:8080
+newman run postman/event-ledger-gateway.postman_collection.json
+
+# override the host and emit CLI + HTML reports
+newman run postman/event-ledger-gateway.postman_collection.json \
+  --env-var "baseUrl=http://localhost:8080" \
+  -r cli,htmlextra
+```
+
+The HTML report is written to `newman/` by default.
+
 ## Makefile targets
 
 | Target | Description |
